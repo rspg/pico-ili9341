@@ -25,16 +25,31 @@
 #ifndef DebugMacros_h
 #define DebugMacros_h
 #include "../SdFatConfig.h"
-#define USE_DBG_MACROS 0
+#define USE_DBG_MACROS 1
+
+#if defined(RP2040)
+#include <stdio.h>
+static void dbgPrint(uint16_t line) {
+  printf("DBG_FAIL: ");
+  printf(DBG_FILE);
+  printf(".%d\n", line);
+}
+
+#define DBG_PRINT_IF(b) if (b) {printf(__FILE__));\
+                        printf(__LINE__"\n");}
+#define DBG_HALT_IF(b) if (b) {printf("DBG_HALT ");\
+                       printf(__FILE__); printf(__LINE__"\n");\
+                       while (true) {}}
+#define DBG_FAIL_MACRO dbgPrint(__LINE__);
+
+#else // RP2040
 
 #if USE_DBG_MACROS
-#if defined(RP2040)
-#else
 #include "Arduino.h"
-#endif
 #ifndef DBG_FILE
 #error DBG_FILE not defined
 #endif  // DBG_FILE
+
 static void dbgPrint(uint16_t line) {
   Serial.print(F("DBG_FAIL: "));
   Serial.print(F(DBG_FILE));
@@ -48,9 +63,11 @@ static void dbgPrint(uint16_t line) {
                        Serial.print(F(__FILE__)); Serial.println(__LINE__);\
                        while (true) {}}
 #define DBG_FAIL_MACRO dbgPrint(__LINE__);
+
 #else  // USE_DBG_MACROS
 #define DBG_FAIL_MACRO
 #define DBG_PRINT_IF(b)
 #define DBG_HALT_IF(b)
 #endif  // USE_DBG_MACROS
+#endif // RP2040
 #endif  // DebugMacros_h
