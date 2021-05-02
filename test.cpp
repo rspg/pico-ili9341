@@ -10,40 +10,52 @@
 #include "hardware/clocks.h"
 #include "hardware/structs/pll.h"
 #include "hardware/structs/clocks.h"
+#include "sdcard.h"
+#include "print.h"
+
+#include "SDFat/ExFatLib/ExFatVolume.h"
 
 // SPI Defines
 // We are going to use SPI 0, and allocate it to the following GPIO pins
 // Pins can be changed, see the GPIO function select table in the datasheet for information on GPIO assignments
-#define SPI_PORT spi0
-#define PIN_RX   4
-#define PIN_CS   5
-#define PIN_SCK  2
-#define PIN_TX   3
-#define PIN_DC   0
+#define SPI_TFT_PORT spi0
+#define PIN_TFT_RX   4
+#define PIN_TFT_CS   5
+#define PIN_TFT_SCK  2
+#define PIN_TFT_TX   3
+#define PIN_TFT_DC   0
+
+#define SPI_SDC_PORT spi1
+#define PIN_SDC_SCK  10
+#define PIN_SDC_TX   11
+#define PIN_SDC_RX   12
+#define PIN_SDC_CS   13
+
 #define PIN_RESET   15
 
 #define HARDWARE_SPI        (1)
 
-
+SDCard sdcard;
+ExFatVolume filesys;
 
 void spiWrite(uint8_t value)
 {
 #if HARDWARE_SPI
-    spi_write_blocking(SPI_PORT, &value, 1);
+    spi_write_blocking(SPI_TFT_PORT, &value, 1);
 #else
     for(int i = 0; i < 8; ++i)
     {
-        gpio_put(PIN_TX, (value&0x80) ? true : false);
-        gpio_put(PIN_SCK, true);
+        gpio_put(PIN_TFT_TX, (value&0x80) ? true : false);
+        gpio_put(PIN_TFT_SCK, true);
         value <<= 1;
-        gpio_put(PIN_SCK, false);
+        gpio_put(PIN_TFT_SCK, false);
     }
 #endif
 }
 void spiWrite(const uint8_t *values, int bytes)
 {
 #if HARDWARE_SPI
-    spi_write_blocking(SPI_PORT, values, bytes);
+    spi_write_blocking(SPI_TFT_PORT, values, bytes);
 #else
     for(int i = 0; i < bytes; ++i)
         spiWrite(values[i]);
@@ -54,14 +66,14 @@ uint8_t spiRead()
 {
     uint8_t read = 0;
 #if HARDWARE_SPI
-    spi_read_blocking(SPI_PORT, 0x00, &read, 1);
+    spi_read_blocking(SPI_TFT_PORT, 0x00, &read, 1);
 #else
     for(int i = 0; i < 8; ++i)
     {
-        gpio_put(PIN_SCK, true);
+        gpio_put(PIN_TFT_SCK, true);
         read <<= 1;
-        read |= gpio_get(PIN_RX) ? 1 : 0;
-        gpio_put(PIN_SCK, false);
+        read |= gpio_get(PIN_TFT_RX) ? 1 : 0;
+        gpio_put(PIN_TFT_SCK, false);
     }
 #endif
     return read;
@@ -69,7 +81,7 @@ uint8_t spiRead()
 void spiReadArray(uint8_t* receive, int bytes)
 {
 #if HARDWARE_SPI
-    spi_read_blocking(SPI_PORT, 0x00, receive, bytes);
+    spi_read_blocking(SPI_TFT_PORT, 0x00, receive, bytes);
 #else
     for(int i = 0; i < bytes; ++i)
         receive[i] = spiRead();
@@ -79,22 +91,22 @@ void spiReadArray(uint8_t* receive, int bytes)
 void spiDummyClock()
 {
 #if !HARDWARE_SPI
-    gpio_put(PIN_SCK, true);
-    gpio_put(PIN_SCK, false);
+    gpio_put(PIN_TFT_SCK, true);
+    gpio_put(PIN_TFT_SCK, false);
 #endif
 }
 
 void sendCommand(uint8_t cmd, const uint8_t* data, int databytes)
 {
-    gpio_put(PIN_CS, false);
+    gpio_put(PIN_TFT_CS, false);
 
-    gpio_put(PIN_DC, false);
+    gpio_put(PIN_TFT_DC, false);
     spiWrite(cmd);
 
-    gpio_put(PIN_DC, true);
+    gpio_put(PIN_TFT_DC, true);
     spiWrite(data, databytes);
 
-    gpio_put(PIN_CS, true);
+    gpio_put(PIN_TFT_CS, true);
 }
 
 void sendCommand(uint8_t cmd, std::initializer_list<const uint8_t> data)
@@ -109,38 +121,16 @@ void sendCommand(uint8_t cmd)
 
 void readCommand8(uint8_t cmd, uint8_t* receive, int receivebytes)
 {
-    gpio_put(PIN_CS, false);
+    gpio_put(PIN_TFT_CS, false);
 
-    gpio_put(PIN_DC, false);
+    gpio_put(PIN_TFT_DC, false);
     spiWrite(cmd);
 
-    gpio_put(PIN_DC, true);
+    gpio_put(PIN_TFT_DC, true);
     spiReadArray(receive, receivebytes);
 
-    gpio_put(PIN_CS, true);
+    gpio_put(PIN_TFT_CS, true);
 }
-
-// int readCommand24(uint8_t cmd)
-// {
-//     gpio_put(PIN_CS, false);
-
-//     gpio_put(PIN_DC, false);
-//     spiWrite(cmd);
-
-//     gpio_put(PIN_DC, true);
-//     spiDummyClock();
-
-//     int read = 0;
-//     for(int i = 0; i < 3; ++i)
-//     {
-//         read <<= 8;
-//         read |= spiRead();
-//     }
-
-//     gpio_put(PIN_CS, true);
-
-//     return read;
-// }
 
 void tftInit()
 {
@@ -166,6 +156,7 @@ void tftInit()
     sendCommand(0x37, {0x00});
     sendCommand(0x3A, {0x55});
     sendCommand(0xB1, {0x00, 0x1f});
+    sendCommand(0xB3, {0x00, 0x1f});
     sendCommand(0xB6, {0x08, 0x82, 0x27});
     sendCommand(0xBE, {0x00});
     sendCommand(0xF2, {0x00});
@@ -177,9 +168,53 @@ void tftInit()
     sendCommand(0x29);
 }
 
-uint16_t color_r[40*40];
-uint16_t color_g[40*40];
-uint16_t color_b[40*40];
+void sdcInit()
+{
+    sdcard.initialize(SPI_SDC_PORT, 
+        PIN_SDC_SCK,
+        PIN_SDC_RX,
+        PIN_SDC_TX,
+        PIN_SDC_CS);
+
+    PrintStdio print;
+    print.println("TEST");
+
+    bool ret;
+    if(!filesys.begin(&sdcard))
+        printf("filesys begin failed.\n");
+        
+    filesys.printFat(&print);
+    
+
+#if 0
+    printf("sectors = %u\n", sdcard.sectorCount());
+
+    uint8_t block[512];
+
+    std::fill(std::begin(block), std::end(block), 0xe4);
+
+    sdcard.writeSectors(0x1000, block, 1);
+
+    std::fill(std::begin(block), std::end(block), 0x9e);
+
+    
+    if(sdcard.readSectors(0x1000, block, 1))
+    {
+        for(auto& i : block)
+        {
+            if((std::distance(block, &i)&511) == 0)
+                printf("\n");
+            printf("%02x", i);
+        }
+        printf("\n");
+    }
+#endif
+    sleep_ms(1000);
+}
+
+uint16_t color_r[240];
+uint16_t color_g[240];
+uint16_t color_b[240];
 
 int main()
 {
@@ -192,27 +227,27 @@ int main()
     //                 48 * MHZ);
 
 #if HARDWARE_SPI
-    spi_init(SPI_PORT, 60*1000*1000);
-    gpio_set_function(PIN_RX,   GPIO_FUNC_SPI);
-    gpio_set_function(PIN_SCK,  GPIO_FUNC_SPI);
-    gpio_set_function(PIN_TX,   GPIO_FUNC_SPI);
-    spi_set_format(SPI_PORT, 8, SPI_CPOL_0, SPI_CPHA_0, SPI_MSB_FIRST);
+    spi_init(SPI_TFT_PORT, 100*MHZ);
+    gpio_set_function(PIN_TFT_RX,   GPIO_FUNC_SPI);
+    gpio_set_function(PIN_TFT_SCK,  GPIO_FUNC_SPI);
+    gpio_set_function(PIN_TFT_TX,   GPIO_FUNC_SPI);
+    spi_set_format(SPI_TFT_PORT, 8, SPI_CPOL_0, SPI_CPHA_0, SPI_MSB_FIRST);
 #else
-    gpio_init(PIN_SCK);
-    gpio_init(PIN_TX);
-    gpio_init(PIN_RX);
-    gpio_set_dir(PIN_SCK, GPIO_OUT);
-    gpio_set_dir(PIN_TX, GPIO_OUT);
-    gpio_set_dir(PIN_RX, GPIO_IN);
-#endif
-    gpio_init(PIN_CS);
-    gpio_init(PIN_DC);
-    gpio_init(PIN_RESET);
-    gpio_set_dir(PIN_CS, GPIO_OUT);
-    gpio_set_dir(PIN_DC, GPIO_OUT);
-    gpio_set_dir(PIN_RESET, GPIO_OUT);
+    gpio_init(PIN_TFT_SCK);
+    gpio_init(PIN_TFT_TX);
+    gpio_init(PIN_TFT_RX);
+    gpio_set_dir(PIN_TFT_SCK, GPIO_OUT);
+    gpio_set_dir(PIN_TFT_TX, GPIO_OUT);
+    gpio_set_dir(PIN_TFT_RX, GPIO_IN);
+#endif    
+    gpio_init(PIN_TFT_CS);
+    gpio_init(PIN_TFT_DC);
+    gpio_set_dir(PIN_TFT_CS, GPIO_OUT);
+    gpio_set_dir(PIN_TFT_DC, GPIO_OUT);
+    gpio_put(PIN_TFT_CS, true);  
     
-    gpio_put(PIN_CS, true);  
+    gpio_init(PIN_RESET);
+    gpio_set_dir(PIN_RESET, GPIO_OUT);
     
     std::fill(std::begin(color_r), std::end(color_r), 0x00f8);
     std::fill(std::begin(color_g), std::end(color_g), 0xe007);
@@ -224,20 +259,27 @@ int main()
 
     // reset
     tftInit();
+
+    sdcInit();
     
     sendCommand(0x2A, {0x00, 0x64, 0x00, 0x96});
     sendCommand(0x2B, {0x00, 0x96, 0x00, 0xc8});
     sendCommand(0x2C, {0xf7, 0xdc, 0x00, 0x00, 0x00, 0x00});
 
-    sendCommand(0xB5, {0x20, 0x00, 0x00, 0x00 });
+    //sendCommand(0xB5, {0x20, 0x00, 0x00, 0x00 });
+    sendCommand(0xB1, {0x00, 0x1f});
+    sendCommand(0xB3, {0x00, 0x1f});
 
 #if 1
     int vsyncout = 0;
     int count = 0;
-    uint32_t us = time_us_32();
+    int frames = 0;
+    uint32_t us = time_us_64();
     int pregts = 0;
     while(true)
     {
+
+#if 0
         uint8_t receive[5] = {0};
         readCommand8(0x45, receive, 3);
 
@@ -245,7 +287,7 @@ int main()
         //     receive[0], receive[1], receive[2]);
         const int gts = ((((int)receive[0] << 16) | ((int)receive[1] << 8) | receive[2]) >> 7)&0x3ff;
         //printf("%d ", gts);
-        if(gts >= 32)
+        if(gts < 320)
         {
             pregts = gts;
             ++vsyncout;
@@ -254,41 +296,44 @@ int main()
 
         if(!vsyncout)
             continue;
+#endif
 
         uint8_t* color = nullptr;
-        switch(count)
+        switch(count>>1)
         {
             case 0: color = reinterpret_cast<uint8_t*>(color_r); break;
             case 1: color = reinterpret_cast<uint8_t*>(color_g); break;
             case 2: color = reinterpret_cast<uint8_t*>(color_b); break;
         }
 
+        uint64_t transfarSpent = time_us_64();
         if(color)
         {
             auto cursor = [](int x1, int y1)
             {
-                int x2 = x1 + 40;
-                int y2 = y1 + 40;
+                int x2 = x1 + 240;
+                int y2 = y1 + 8;
                 sendCommand(0x2A, {(uint8_t)(x1>>8), (uint8_t)(x1&0xff), (uint8_t)(x2>>8), (uint8_t)(x2&0xff)});
                 sendCommand(0x2B, {(uint8_t)(y1>>8), (uint8_t)(y1&0xff), (uint8_t)(y2>>8), (uint8_t)(y2&0xff)});
             };
 
 
-            for(int y = 0; y < 7; ++y)
+            for(int y = count&1; y < 320; y += 2)
             {
-                for(int x = 0; x < 1; ++x)
-                {
-                    cursor(x*40, y*40);
-                    sendCommand(0x2C, color, 40*40*2);
-                }
+                cursor(0, y);
+                sendCommand(0x2C, color, 240*2);
             }
+
+            transfarSpent = time_us_64() - transfarSpent;
         }
         
-        if(++count > 3)
+        if(++count >= 6)
             count = 0;
         
-        auto now = time_us_32();
-        printf("%u %d\n", now - us, pregts);
+        if(++frames > 60)
+            frames = 0;
+        auto now = time_us_64();
+        //printf("%u(%u) %d %d\n", (uint32_t)(now - us), (uint32_t)transfarSpent, pregts, frames);
         us = now;
 
         vsyncout = 0;

@@ -19,7 +19,11 @@ pico_sdk_init()
 
 # Add executable. Default name is the project name, version 0.1
 
-add_executable(test test.cpp )
+add_definitions(-DRP2040=1)
+add_executable(test 
+        test.cpp 
+        sdcard.cpp
+         )
 
 pico_set_program_name(test "test")
 pico_set_program_version(test "0.1")
@@ -28,7 +32,7 @@ pico_enable_stdio_uart(test 0)
 pico_enable_stdio_usb(test 1)
 
 # Add the standard library to the build
-target_link_libraries(test pico_stdlib)
+target_link_libraries(test pico_stdlib SDFat)
 
 # Add any user requested libraries
 target_link_libraries(test
@@ -36,6 +40,8 @@ target_link_libraries(test
         hardware_dma
         hardware_timer
         )
+
+add_subdirectory(SDFat)
 
 pico_add_extra_outputs(test)
 
