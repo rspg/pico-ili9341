@@ -131,8 +131,10 @@ void dispPngImage()
             scanline[j*2 + 0] = c>>8;
             scanline[j*2 + 1] = c&0xff;               
         }
-        ili9341.writePixels(reinterpret_cast<uint16_t*>(scanline), 240, i!=0);
+        ili9341.writePixelsDma(reinterpret_cast<uint16_t*>(scanline), 240, i!=0);
     }
+
+    printf("done\n");
 }
 
 uint16_t color_r[240];
@@ -259,6 +261,9 @@ int main()
         sleep_ms(1000);
     }
 #endif
+
+    while (true)
+        tight_loop_contents();
 
     return 0;
 }

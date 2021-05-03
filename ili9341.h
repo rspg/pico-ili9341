@@ -1,6 +1,7 @@
 #pragma once
 
 #include <hardware/spi.h>
+#include <hardware/dma.h>
 #include <initializer_list>
 
 class ILI9341
@@ -97,10 +98,12 @@ public:
     void setColumnRange(uint16_t x0, uint16_t x1);
     void setRowRange(uint16_t y0, uint16_t y1);
     void writePixels(const uint16_t* pixels, int count, bool continuous);
+    void writePixelsDma(const uint16_t* pixels, int count, bool continuous);
 
     void sendCommand(uint8_t cmd, const void* data, int databytes);
     void sendCommand(uint8_t cmd, std::initializer_list<const uint8_t> data);
     void sendCommand(uint8_t cmd);
+    void sendCommandDma(uint8_t cmd, const void* data, int databytes);
     void readCommand(uint8_t cmd, void* receive, int receivebytes);
 private:
     int m_pin_cs = 0;
@@ -113,5 +116,6 @@ private:
     int write(const void *src, int bytes);
     uint8_t read();
     int read(void* dst, int bytes);
-    
+
+    static void dma_handler();
 };

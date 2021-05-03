@@ -1,6 +1,18 @@
+#include <stdio.h>
 #include <hardware/clocks.h>
 #include <hardware/gpio.h>
+#include <hardware/irq.h>
 #include "ILI9341.h"
+
+
+static volatile int s_dma_tx = 0;
+static volatile ILI9341* s_active_device = nullptr;
+
+static void waitDma()
+{
+    dma_channel_wait_for_finish_blocking(s_dma_tx);
+}
+
 
 
 void ILI9341::initialize(spi_inst_t* spi, int sck, int rx, int tx, int cs, int dc, int reset)
@@ -23,6 +35,23 @@ void ILI9341::initialize(spi_inst_t* spi, int sck, int rx, int tx, int cs, int d
     gpio_set_dir(dc, GPIO_OUT);
     gpio_set_dir(reset, GPIO_OUT);
     gpio_put(cs, true);  
+
+    if(s_dma_tx == 0)
+        s_dma_tx = dma_claim_unused_channel(true);
+    auto config = dma_channel_get_default_config(s_dma_tx);
+    channel_config_set_transfer_data_size(&config, DMA_SIZE_8);
+    channel_config_set_dreq(&config, spi_get_index(m_spi) ? DREQ_SPI1_TX : DREQ_SPI0_TX);
+    dma_channel_configure(s_dma_tx, &config,
+                          &spi_get_hw(m_spi)->dr, // write address
+                          nullptr, // read address
+                          0, // element count (each element is of size transfer_data_size)
+                          false); // don't start yet
+    dma_channel_set_irq0_enabled(s_dma_tx, true);
+    channel_config_set_read_increment(&config, true);
+    channel_config_set_write_increment(&config, true);
+
+    irq_set_exclusive_handler(DMA_IRQ_0, dma_handler);
+    irq_set_enabled(DMA_IRQ_0, true);
 
     initDriver();
 }
@@ -56,17 +85,9 @@ void ILI9341::writePixels(const uint16_t* pixels, int count, bool continuous)
     sendCommand(continuous ? cmd_write_memory_continue : cmd_memory_write, pixels, count*2);
 }
 
-void ILI9341::sendCommand(uint8_t cmd, const void* data, int databytes)
+void ILI9341::writePixelsDma(const uint16_t* pixels, int count, bool continuous)
 {
-    gpio_put(m_pin_cs, false);
-
-    gpio_put(m_pin_dc, false);
-    write(cmd);
-
-    gpio_put(m_pin_dc, true);
-    write(data, databytes);
-
-    gpio_put(m_pin_cs, true);
+    sendCommandDma(continuous ? cmd_write_memory_continue : cmd_memory_write, pixels, count*2);
 }
 
 void ILI9341::sendCommand(uint8_t cmd, std::initializer_list<const uint8_t> data)
@@ -79,8 +100,40 @@ void ILI9341::sendCommand(uint8_t cmd)
     sendCommand(cmd, nullptr, 0);
 }
 
+void ILI9341::sendCommand(uint8_t cmd, const void* data, int databytes)
+{
+    waitDma();
+
+    gpio_put(m_pin_cs, false);
+
+    gpio_put(m_pin_dc, false);
+    write(cmd);
+
+    gpio_put(m_pin_dc, true);
+    write(data, databytes);
+
+    gpio_put(m_pin_cs, true);
+}
+
+void ILI9341::sendCommandDma(uint8_t cmd, const void* data, int databytes)
+{
+    waitDma();
+
+    gpio_put(m_pin_cs, false);
+
+    gpio_put(m_pin_dc, false);
+    write(cmd);
+
+    gpio_put(m_pin_dc, true);
+
+    s_active_device = this;
+    dma_channel_transfer_from_buffer_now(s_dma_tx, const_cast<void*>(data), databytes);
+}
+
 void ILI9341::readCommand(uint8_t cmd, void* receive, int receivebytes)
 {
+    waitDma();
+
     gpio_put(m_pin_cs, false);
 
     gpio_put(m_pin_dc, false);
@@ -150,5 +203,17 @@ uint8_t ILI9341::read()
 int ILI9341::read(void* dst, int bytes)
 {
     return spi_read_blocking(m_spi, 0x00, reinterpret_cast<uint8_t*>(dst), bytes);
+}
+
+void ILI9341::dma_handler()
+{
+    if(s_active_device != nullptr)
+    {
+        auto hw = spi_get_hw(s_active_device->m_spi);
+        while((hw->sr>>4)&1)
+            tight_loop_contents();
+        gpio_put(s_active_device->m_pin_cs, true);
+    }
+    dma_hw->ints0 = 1u << s_dma_tx;
 }
 
