@@ -23,7 +23,8 @@ add_definitions(-DRP2040=1)
 add_executable(test 
         test.cpp 
         sdcard.cpp
-         )
+        ILI9341.cpp
+        )
 
 pico_set_program_name(test "test")
 pico_set_program_version(test "0.1")
