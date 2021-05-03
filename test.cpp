@@ -14,6 +14,7 @@
 #include "print.h"
 
 #include "SDFat/ExFatLib/ExFatVolume.h"
+#include "libspng/spng.h"
 
 // SPI Defines
 // We are going to use SPI 0, and allocate it to the following GPIO pins
@@ -182,9 +183,8 @@ void sdcInit()
     bool ret;
     if(!filesys.begin(&sdcard))
         printf("filesys begin failed.\n");
-        
-    filesys.printFat(&print);
-    
+
+    filesys.printVolInfo(&print);
 
 #if 0
     printf("sectors = %u\n", sdcard.sectorCount());
@@ -210,6 +210,47 @@ void sdcInit()
     }
 #endif
     sleep_ms(1000);
+}
+
+
+void dispPngImage()
+{
+    sendCommand(0x2A, {0x00, 0x00, 0x00, 0xf0});
+    sendCommand(0x2B, {0x00, 0x00, 0x01, 0x40});
+
+    printf("open image\n");
+    auto file = filesys.open("lion.png");
+
+    auto png = spng_ctx_new(0);
+    
+    spng_set_png_stream(png, +[](spng_ctx *ctx, void *user, void *dest, size_t length){
+        auto file = reinterpret_cast<ExFile*>(user);
+        file->read(dest, length);
+        return 0;
+    }, &file);
+
+    spng_decode_image(png, nullptr, 0, SPNG_FMT_RGB8, SPNG_DECODE_PROGRESSIVE);
+
+    uint8_t outbuf[3*240];
+    for(int i = 0; i < 320; ++i)
+    {
+        printf("decode %d\n", i);
+        auto ret = spng_decode_scanline(png, outbuf, std::size(outbuf));
+        if(ret != 0)
+            break;
+
+        uint8_t scanline[240*2];
+        for(int j = 0; j < 240; ++j)
+        {
+            uint16_t c 
+                = (((uint16_t)outbuf[j*3 + 0] << 8) & 0xf800) 
+                | (((uint16_t)outbuf[j*3 + 1] << 3) & 0x07e0) 
+                | (((uint16_t)outbuf[j*3 + 2] >> 3) & 0x001f);
+            scanline[j*2 + 0] = c>>8;
+            scanline[j*2 + 1] = c&0xff;               
+        }
+        sendCommand(i==0 ? 0x2C : 0x3C, reinterpret_cast<uint8_t*>(scanline), 240*2);
+    }
 }
 
 uint16_t color_r[240];
@@ -261,14 +302,16 @@ int main()
     tftInit();
 
     sdcInit();
+
+    dispPngImage();
     
     sendCommand(0x2A, {0x00, 0x64, 0x00, 0x96});
     sendCommand(0x2B, {0x00, 0x96, 0x00, 0xc8});
     sendCommand(0x2C, {0xf7, 0xdc, 0x00, 0x00, 0x00, 0x00});
 
     //sendCommand(0xB5, {0x20, 0x00, 0x00, 0x00 });
-    sendCommand(0xB1, {0x00, 0x1f});
-    sendCommand(0xB3, {0x00, 0x1f});
+    sendCommand(0xB1, {0x00, 0x10});
+    sendCommand(0xB3, {0x00, 0x10});
 
 #if 1
     int vsyncout = 0;
@@ -276,7 +319,7 @@ int main()
     int frames = 0;
     uint32_t us = time_us_64();
     int pregts = 0;
-    while(true)
+    while(false)
     {
 
 #if 0

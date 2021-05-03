@@ -29,6 +29,13 @@ constexpr uint8_t write_token_stop_block = 0xfd;
 constexpr uint32_t block_size = 512;
 
 
+#if 0
+#define debug_print(...)    printf(__VA_ARGS__)
+#else
+#define debug_print(...)    
+#endif
+
+
 struct CSDV1 {
   // byte 0
   unsigned char reserved1 : 6;
@@ -209,7 +216,7 @@ template<typename Fn> bool timeout(Fn&& fn, uint32_t us)
             return false;
     }while(absolute_time_diff_us(start_time, get_absolute_time()) < us);
 
-    printf("timeouted\n");
+    debug_print("timeouted\n");
 
     return true;
 }
@@ -245,7 +252,7 @@ bool SDCard::readSector(uint32_t sector, uint8_t* dst)
 
 bool SDCard::readSectors(uint32_t sector, uint8_t* dst, size_t ns)
 {
-    if(m_sdhc)
+    if(!m_sdhc)
         sector <<= 9;
 
     cs_active_scoped active(m_pin_cs);
@@ -307,7 +314,7 @@ bool SDCard::writeSector(uint32_t sector, const uint8_t* src)
 
 bool SDCard::writeSectors(uint32_t sector, const uint8_t* src, size_t ns) 
 {
-    if(m_sdhc)
+    if(!m_sdhc)
         sector <<= 9;
 
     cs_active_scoped active(m_pin_cs);
@@ -369,7 +376,7 @@ int SDCard::receiveResponse()
             break;
     }
 
-    printf("recv : %02x\n", data);
+    debug_print("recv : %02x\n", data);
 
     return data;
 }
@@ -431,7 +438,7 @@ int SDCard::sendCmd(uint8_t cmd, uint32_t arg)
         };
         send({ packet[0], packet[1], packet[2], packet[3], packet[4], packet[5] });
 
-        printf("cmd : %02x %02x %02x %02x %02x %02x\n",
+        debug_print("cmd : %02x %02x %02x %02x %02x %02x\n",
             packet[0], packet[1], packet[2], packet[3], packet[4], packet[5]);
 
         response = receiveResponse();
@@ -474,6 +481,8 @@ bool SDCard::initialize_card()
         if(sendCmd(16, block_size) != 0x00)
             return false;
     }
+
+    spi_set_baudrate(m_spi, 1000*1000);
 
     return true;
 }

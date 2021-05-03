@@ -32,7 +32,11 @@ pico_enable_stdio_uart(test 0)
 pico_enable_stdio_usb(test 1)
 
 # Add the standard library to the build
-target_link_libraries(test pico_stdlib SDFat)
+target_link_libraries(test 
+        pico_stdlib 
+        SDFat
+        ${CMAKE_SOURCE_DIR}/libspng/libspng_static.a
+        ${CMAKE_SOURCE_DIR}/zlib/libzlibstatic.a)
 
 # Add any user requested libraries
 target_link_libraries(test
