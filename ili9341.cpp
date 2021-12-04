@@ -47,8 +47,6 @@ void ILI9341::initialize(spi_inst_t* spi, int sck, int rx, int tx, int cs, int d
                           0, // element count (each element is of size transfer_data_size)
                           false); // don't start yet
     dma_channel_set_irq0_enabled(s_dma_tx, true);
-    channel_config_set_read_increment(&config, true);
-    channel_config_set_write_increment(&config, true);
 
     irq_set_exclusive_handler(DMA_IRQ_0, dma_handler);
     irq_set_enabled(DMA_IRQ_0, true);
